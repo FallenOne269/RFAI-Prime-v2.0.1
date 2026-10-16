@@ -30,6 +30,8 @@ CRITIC_PERSPECTIVES = [
     "clarity",
 ]
 
+EARLY_EXIT_SCORE = 8.0
+
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
@@ -197,7 +199,7 @@ class RFAIPrimeCouncil:
             )
             all_feedbacks = list(feedbacks)
             avg_score = sum(f.score for f in all_feedbacks) / len(all_feedbacks)
-            if avg_score >= 8.0 or revisions >= self.max_revisions:
+            if avg_score >= EARLY_EXIT_SCORE or revisions >= self.max_revisions:
                 break
             draft = await self._integrator(task, draft, all_feedbacks)
             revisions += 1
