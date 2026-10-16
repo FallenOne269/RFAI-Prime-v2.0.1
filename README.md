@@ -110,7 +110,43 @@ Add to your MCP client config (e.g. Claude Desktop `claude_desktop_config.json`)
 | `RFAI_MCP_ENABLE_COUNCIL` | off | Set to `1` (with `ANTHROPIC_API_KEY`) to enable `invoke_council` |
 | `RFAI_MCP_TRANSPORT` / `RFAI_MCP_HOST` / `RFAI_MCP_PORT` | `stdio` / `127.0.0.1` / `8000` | Transport settings |
 
-The HTTP transport has no authentication; keep it bound to localhost or put it behind an authenticated proxy.
+Without OAuth the HTTP transport has no authentication; keep it bound to localhost.
+
+### Remote access with OAuth (Sesame custom app)
+
+Set `RFAI_MCP_OAUTH=1` to protect the HTTP transport with OAuth 2.1, following the
+[MCP authorization spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization).
+The server acts as its own authorization server. It publishes protected-resource and
+authorization-server metadata, supports dynamic client registration, uses authorization code + PKCE (S256),
+rotates refresh tokens, and supports revocation. When a client is authorized, the operator approves it on a
+consent page protected by `RFAI_MCP_OAUTH_PASSWORD`.
+
+```bash
+export RFAI_MCP_OAUTH=1
+export RFAI_MCP_PUBLIC_URL=https://rfai.example.com          # public HTTPS origin (behind TLS proxy)
+export RFAI_MCP_OAUTH_PASSWORD='a-long-random-passphrase'    # >= 12 chars, keep secret
+export RFAI_MCP_OAUTH_STATE_FILE=/var/lib/rfai-mcp/oauth.json  # optional: survive restarts
+python -m mcp_server --transport streamable-http --host 127.0.0.1 --port 8000
+```
+
+In Sesame, add a custom app with the URL `https://rfai.example.com/mcp` and pick OAuth. Sesame discovers
+the endpoints, registers itself, and opens the consent page. Enter the password there and click **Approve**.
+If the client needs a pre-registered client ID/secret instead of dynamic registration, set
+`RFAI_MCP_OAUTH_CLIENT_ID`, `RFAI_MCP_OAUTH_CLIENT_SECRET` and `RFAI_MCP_OAUTH_REDIRECT_URIS`
+(comma-separated, use the callback URL Sesame shows) and enter the same values in Sesame.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RFAI_MCP_OAUTH` | off | Enable OAuth on HTTP transports (refused with stdio) |
+| `RFAI_MCP_PUBLIC_URL` | required | Externally reachable origin; issuer and resource URL (`<url>/mcp`) |
+| `RFAI_MCP_OAUTH_PASSWORD` | required | Operator password for the consent page |
+| `RFAI_MCP_OAUTH_STATE_FILE` | in memory | JSON file (mode 0600) persisting clients and tokens |
+| `RFAI_MCP_OAUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URIS` | unset | Optional pre-registered client |
+| `RFAI_MCP_ACCESS_TOKEN_TTL` / `RFAI_MCP_REFRESH_TOKEN_TTL` | `3600` / `2592000` | Token lifetimes (seconds) |
+
+Requests whose `Host` is neither the public host nor localhost are rejected (DNS-rebinding protection),
+so your proxy must forward the original `Host` header or connect to `127.0.0.1`. Terminate TLS in front
+of the server. Never expose plain HTTP publicly. `GET /healthz` is an unauthenticated liveness probe.
 
 ## Docs
 

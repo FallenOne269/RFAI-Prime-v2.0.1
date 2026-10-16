@@ -15,11 +15,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal, Optional
+from urllib.parse import urlparse
 
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
+from pydantic import AnyHttpUrl
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
+from mcp_server.auth import LOGIN_PATH, SCOPE, OAuthSettings, RFAIOAuthProvider
 from mcp_server.runs import PytestRunner, RunError
 
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -32,6 +39,8 @@ EXCLUDED_DIRS = {
 SECRET_FILE_PATTERNS = (".env", ".env.*", "*.pem", "*.key", "id_rsa*")
 MAX_READ_BYTES = 256 * 1024
 MAX_SEARCH_FILE_BYTES = 1024 * 1024
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 
@@ -58,14 +67,22 @@ class Settings:
     test_timeout: int = 600
     enable_council: bool = False
     python: str = sys.executable
+    host: str = "127.0.0.1"
+    port: int = 8000
+    oauth: Optional[OAuthSettings] = None
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls, host: Optional[str] = None, port: Optional[int] = None) -> "Settings":
+        public_url = os.environ.get("RFAI_MCP_PUBLIC_URL")
+        oauth = OAuthSettings.from_env(public_url) if _env_flag("RFAI_MCP_OAUTH") else None
         return cls(
             repo_root=Path(os.environ.get("RFAI_REPO_ROOT", DEFAULT_REPO_ROOT)).resolve(),
             test_timeout=int(os.environ.get("RFAI_MCP_TEST_TIMEOUT", "600")),
             enable_council=_env_flag("RFAI_MCP_ENABLE_COUNCIL"),
             python=os.environ.get("RFAI_MCP_PYTHON", sys.executable),
+            host=host or os.environ.get("RFAI_MCP_HOST", "127.0.0.1"),
+            port=port or int(os.environ.get("RFAI_MCP_PORT", "8000")),
+            oauth=oauth,
         )
 
 
@@ -131,7 +148,17 @@ def create_server(settings: Optional[Settings] = None) -> FastMCP:
     runner = PytestRunner(
         settings.repo_root, python=settings.python, default_timeout=settings.test_timeout,
     )
-    mcp = FastMCP("rfai-prime", instructions=INSTRUCTIONS)
+    mcp = FastMCP("rfai-prime", instructions=INSTRUCTIONS, host=settings.host,
+                  port=settings.port, **_auth_kwargs(settings))
+
+    @mcp.custom_route("/healthz", methods=["GET"])
+    async def healthz(request: Request) -> Response:
+        return JSONResponse({"status": "ok", "oauth": settings.oauth is not None})
+
+    if settings.oauth is not None:
+        provider = mcp._auth_server_provider
+        assert isinstance(provider, RFAIOAuthProvider)
+        mcp.custom_route(LOGIN_PATH, methods=["GET", "POST"])(provider.handle_login)
 
     # ------------------------------------------------------------------
     # Project query tools
@@ -395,20 +422,57 @@ def create_server(settings: Optional[Settings] = None) -> FastMCP:
     return mcp
 
 
+def _auth_kwargs(settings: Settings) -> dict[str, Any]:
+    """FastMCP constructor arguments that enable OAuth and allow the public hostname."""
+    oauth = settings.oauth
+    if oauth is None:
+        return {}
+    public = urlparse(oauth.issuer_url)
+    local_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    return {
+        "auth_server_provider": RFAIOAuthProvider(oauth),
+        "auth": AuthSettings(
+            issuer_url=AnyHttpUrl(oauth.issuer_url),
+            resource_server_url=AnyHttpUrl(oauth.resource_url),
+            required_scopes=[SCOPE],
+            validate_token_resource=True,
+            client_registration_options=ClientRegistrationOptions(
+                enabled=True, valid_scopes=[SCOPE], default_scopes=[SCOPE],
+            ),
+            revocation_options=RevocationOptions(enabled=True),
+        ),
+        "transport_security": TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[public.netloc, *local_hosts],
+            allowed_origins=[f"{public.scheme}://{public.netloc}", "http://127.0.0.1:*",
+                             "http://localhost:*"],
+        ),
+    }
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m mcp_server", description=__doc__)
     parser.add_argument(
         "--transport", choices=["stdio", "streamable-http", "sse"],
         default=os.environ.get("RFAI_MCP_TRANSPORT", "stdio"),
     )
-    parser.add_argument("--host", default=os.environ.get("RFAI_MCP_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("RFAI_MCP_PORT", "8000")))
+    parser.add_argument("--host", default=None, help="bind address (default 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=None, help="bind port (default 8000)")
     args = parser.parse_args(argv)
 
-    server = create_server()
-    server.settings.host = args.host
-    server.settings.port = args.port
-    server.run(transport=args.transport)
+    try:
+        settings = Settings.from_env(host=args.host, port=args.port)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if settings.oauth is not None and args.transport == "stdio":
+        parser.error("OAuth requires an HTTP transport (use --transport streamable-http)")
+    if args.transport != "stdio" and settings.oauth is None and settings.host not in LOCAL_HOSTS:
+        print(f"WARNING: serving without authentication on {settings.host}; set RFAI_MCP_OAUTH=1",
+              file=sys.stderr)
+    if settings.oauth is not None:
+        print(f"OAuth enabled; add this URL as the custom app: {settings.oauth.resource_url}",
+              file=sys.stderr)
+    create_server(settings).run(transport=args.transport)
 
 
 if __name__ == "__main__":
