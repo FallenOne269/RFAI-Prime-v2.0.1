@@ -29,8 +29,12 @@ import sys
 import argparse
 from typing import Callable, Literal, Optional
 
-import anthropic
 from pydantic import BaseModel
+
+try:  # the anthropic SDK is only needed when no client is injected
+    import anthropic
+except ImportError:  # pragma: no cover - exercised only without the SDK installed
+    anthropic = None
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -51,6 +55,18 @@ CRITIC_PERSPECTIVES = [
     "performance",
     "clarity",
 ]
+
+# ---------------------------------------------------------------------------
+# Control-flow exceptions
+# ---------------------------------------------------------------------------
+
+
+class CouncilAbort(Exception):
+    """Raised by a wrapped client to stop the whole run (for example, a spent budget).
+
+    Unlike an ordinary provider error, it is never swallowed as an unreadable critic reply.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -162,6 +178,7 @@ class RFAIPrimeCouncil:
         strict_gate: bool = True,
         preserve_answer: bool = True,
         verifier: Optional[Callable[[str, str], tuple]] = None,
+        client: Optional[object] = None,
     ) -> None:
         if isinstance(max_revisions, bool) or not isinstance(max_revisions, int):
             raise ValueError("max_revisions must be an integer")
@@ -169,7 +186,12 @@ class RFAIPrimeCouncil:
             raise ValueError(f"max_revisions must be between 0 and {MAX_REVISIONS_CEILING}")
         if protocol not in ("plan", "execute"):
             raise ValueError("protocol must be 'plan' or 'execute'")
-        self.client           = anthropic.Anthropic(api_key=api_key or os.environ["ANTHROPIC_API_KEY"])
+        if client is not None:  # any object with .messages.create(model, max_tokens, messages)
+            self.client = client
+        else:
+            if anthropic is None:
+                raise RuntimeError("anthropic package not installed; pass client= instead")
+            self.client = anthropic.Anthropic(api_key=api_key or os.environ["ANTHROPIC_API_KEY"])
         self.architect_model  = architect_model
         self.critic_model     = critic_model
         self.integrator_model = integrator_model
@@ -262,6 +284,8 @@ class RFAIPrimeCouncil:
                 messages=[{"role": "user", "content": prompt}],
             )
             text = resp.content[0].text
+        except CouncilAbort:
+            raise
         except Exception as e:  # W7: one failed critic is recorded, not fatal
             return CriticFeedback(perspective=perspective, score=None,
                                   feedback=f"critic call failed: {type(e).__name__}",

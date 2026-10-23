@@ -7,6 +7,9 @@ This repository contains an implementation of the RFAI-PRIME v2.0.1 council runt
 - `src/rfai_prime_runtime.py` — runtime harness (Architect + 5 critics + Integrator).
 - `docs/rfai_prime_design_doc.md` — high-level design and data model.
 - `docs/rfai_prime_sequence_diagram.md` — Mermaid sequence diagram for the `invoke` path.
+- `src/governance/` — v2.1 candidate governance layer: policy screen (allow / review / deny), budgets, hash-chained evidence log, human review. See `docs/GOVERNANCE.md`.
+- `policies/`, `scenarios/` — default Discovery policy and the 15-scenario acceptance suite.
+- `tests/` — 87 tests with scripted model replies (`python -m pytest -q tests`).
 
 ## Quickstart
 

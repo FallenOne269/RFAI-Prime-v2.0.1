@@ -1,0 +1,162 @@
+{
+  "policy_id": "rfai-discovery-default",
+  "version": "1.0.0",
+  "description": "Default screen for supervised RFAI Discovery work. A keyword and declared-capability screen, not a classifier. Tailor per client; any change is a new version.",
+  "rules": [
+    {
+      "id": "IN-SECRET",
+      "description": "Credential or private key in the task; it must not be sent to a model provider",
+      "stage": "input",
+      "decision": "deny",
+      "risk": "high",
+      "reason_code": "SECRET_IN_INPUT",
+      "patterns": [
+        "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+        "\\bAKIA[0-9A-Z]{16}\\b",
+        "\\b(sk|rk)-[A-Za-z0-9_-]{16,}",
+        "\\b(ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{20,}",
+        "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{5,}"
+      ]
+    },
+    {
+      "id": "OUT-SECRET",
+      "description": "Credential or private key in the model output",
+      "stage": "output",
+      "decision": "deny",
+      "risk": "high",
+      "reason_code": "SECRET_IN_OUTPUT",
+      "patterns": [
+        "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+        "\\bAKIA[0-9A-Z]{16}\\b",
+        "\\b(sk|rk)-[A-Za-z0-9_-]{16,}",
+        "\\b(ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{20,}",
+        "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{5,}"
+      ]
+    },
+    {
+      "id": "IN-PERSONAL-DATA",
+      "description": "Personal data in the task (email, US SSN or phone number); default is synthetic or de-identified data",
+      "stage": "input",
+      "decision": "review",
+      "risk": "medium",
+      "reason_code": "PERSONAL_DATA",
+      "patterns": [
+        "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+        "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+        "(?<!\\w)\\(?\\d{3}\\)?[\\s.-]\\d{3}[\\s.-]\\d{4}(?!\\w)"
+      ],
+      "unless_flags": [
+        "personal_data_authorized"
+      ],
+      "required_approvals": [
+        "privacy_owner"
+      ]
+    },
+    {
+      "id": "IN-INJECTION",
+      "description": "Possible prompt injection in the task",
+      "stage": "input",
+      "decision": "review",
+      "risk": "medium",
+      "reason_code": "PROMPT_INJECTION_SUSPECTED",
+      "patterns": [
+        "ignore (all |any )?(the )?(previous|prior|above) (instructions|rules)",
+        "disregard (the |your )?(system|previous) (prompt|instructions)",
+        "(reveal|print|show) (me )?(your|the) (system prompt|hidden instructions)",
+        "you are now (in )?(developer|dan|jailbreak) mode"
+      ],
+      "required_approvals": [
+        "security_reviewer"
+      ]
+    },
+    {
+      "id": "IN-HIGH-IMPACT",
+      "description": "High-impact use domain; needs domain expertise and a named risk owner",
+      "stage": "input",
+      "decision": "review",
+      "risk": "high",
+      "reason_code": "HIGH_IMPACT_DOMAIN",
+      "domains": [
+        "employment",
+        "education",
+        "credit",
+        "essential_services",
+        "justice",
+        "biometrics",
+        "migration",
+        "health",
+        "safety"
+      ],
+      "required_approvals": [
+        "domain_expert",
+        "risk_owner"
+      ]
+    },
+    {
+      "id": "IN-HIGH-IMPACT-UNREVIEWED",
+      "description": "High-impact domain requested for unreviewed production use; excluded by default",
+      "stage": "input",
+      "decision": "deny",
+      "risk": "critical",
+      "reason_code": "HIGH_IMPACT_UNREVIEWED_PRODUCTION",
+      "domains": [
+        "employment",
+        "education",
+        "credit",
+        "essential_services",
+        "justice",
+        "biometrics",
+        "migration",
+        "health",
+        "safety"
+      ],
+      "when_flags": [
+        "unreviewed_production"
+      ]
+    },
+    {
+      "id": "IN-HARMFUL-TESTING",
+      "description": "Jailbreak, cyber or dual-use testing without written testing authorization",
+      "stage": "input",
+      "decision": "deny",
+      "risk": "critical",
+      "reason_code": "UNAUTHORIZED_HARMFUL_TESTING",
+      "capabilities": [
+        "jailbreak_testing",
+        "cyber_testing",
+        "dual_use_testing"
+      ],
+      "unless_flags": [
+        "written_testing_authorization"
+      ]
+    },
+    {
+      "id": "IN-HARMFUL-REQUEST",
+      "description": "Request for weapons or mass-harm instructions",
+      "stage": "input",
+      "decision": "deny",
+      "risk": "critical",
+      "reason_code": "HARMFUL_CAPABILITY_REQUEST",
+      "patterns": [
+        "\\b(synthesi[sz]e|make|produce|weaponi[sz]e)\\b.{0,40}\\b(sarin|vx|nerve agent|ricin|anthrax|pipe bomb|explosive device)\\b",
+        "\\bwrite (working )?(ransomware|a keylogger|malware)\\b"
+      ]
+    },
+    {
+      "id": "OUT-ASSURANCE-CLAIM",
+      "description": "Output makes a guarantee or certification claim that the work cannot substantiate",
+      "stage": "output",
+      "decision": "review",
+      "risk": "medium",
+      "reason_code": "UNSUPPORTED_ASSURANCE_CLAIM",
+      "patterns": [
+        "\\bguarantee[sd]?\\b.{0,40}\\b(safe|secure|correct|accurate|compliant|unbiased)\\b",
+        "\\b(certified|fully) compliant\\b",
+        "\\b(NIST|ISO|SOC ?2|HIPAA|GDPR|FedRAMP|AI Act)[- ](compliant|certified)\\b"
+      ],
+      "required_approvals": [
+        "reviewer"
+      ]
+    }
+  ]
+}
