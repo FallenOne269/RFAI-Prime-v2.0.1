@@ -268,17 +268,26 @@ test("tokens survive a restart with the same secret; a new token epoch revokes e
   const t = await signIn(s.base);
   const port = new URL(s.base).port;
   await s.close();
+  await settle();
   // Same secret and URL: DCR client IDs and tokens still valid without any database.
   s = await startOnPort(port, {});
   assert.equal((await rpc(s.resource, t.access_token, "tools/list")).status, 200);
   const r = await token(s.base, { grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: t.clientId });
   assert.equal(r.status, 200);
   await s.close();
+  await settle();
   s = await startOnPort(port, { RFAI_MCP_TOKEN_EPOCH: "2" });
   assert.equal((await rpc(s.resource, r.body.access_token, "tools/list")).status, 401);
   const r2 = await token(s.base, { grant_type: "refresh_token", refresh_token: r.body.refresh_token, client_id: t.clientId });
   assert.equal(r2.body.error, "invalid_grant");
 });
+
+// After a server closes its sockets, give fetch's connection pool a moment to see the close.
+// Without this, the next request can reuse a dead keep-alive socket and fail with
+// "other side closed" (a test-harness race, not a server fault).
+function settle(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 100));
+}
 
 // Restart helper that keeps the same port (issuer and audience depend on it).
 import { loadConfig } from "../src/config.ts";
