@@ -128,7 +128,8 @@ test("governance: caller-claimed authorization flags gain nothing through MCP; n
   const sc = await call("council_screen", { task: PENTEST, context: { job_id: "job-9", capabilities: ["cyber_testing"], flags: ["written_testing_authorization"] } });
   assert.notEqual(sc.body.result.structuredContent.input.decision, "allow");
   assert.match(sc.body.result.content[0].text, /Claimed flags ignored/);
-  assert.equal(sc.body.result.structuredContent.trust_store, "no trusted signers configured");
+  // Machine status code from the governed council's loadTrustStore (same value the x402 endpoint reports).
+  assert.equal(sc.body.result.structuredContent.trust_store, "none_configured");
   assert.equal(gateway.calls, 0);
 });
 

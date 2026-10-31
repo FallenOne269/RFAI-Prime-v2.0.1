@@ -4,7 +4,7 @@
   "description": "OAuth-protected MCP server for the governed RFAI council",
   "scripts": {
     "start": "node src/server.ts",
-    "test": "node scripts/sync-council.mjs --check && node --test --test-concurrency=1 test/",
+    "test": "node scripts/sync-council.mjs --check && node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "sync": "node scripts/sync-council.mjs",
     "hash-passcode": "node scripts/hash-passcode.mjs",
     "typecheck": "tsc --noEmit"
