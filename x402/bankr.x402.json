@@ -1,0 +1,97 @@
+{
+  "network": "base",
+  "currency": "USDC",
+  "services": {
+    "rfai-council": {
+      "description": "RFAI-PRIME council: an Architect drafts an answer to your task, five critics (correctness, completeness, security, performance, clarity) score it, and an Integrator writes the final response. Returns the answer plus the full council trace. Every request passes a governance screen first and every answer passes it again before it is returned: refused or withheld requests are not charged, and extra permissions count only from Ed25519-signed grants, never from what a caller says about itself.",
+      "price": "0.03",
+      "methods": [
+        "POST"
+      ],
+      "paymentScheme": "exact",
+      "category": "ai",
+      "tags": [
+        "rfai",
+        "council",
+        "multi-agent",
+        "reasoning",
+        "critique"
+      ],
+      "schema": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "The task or question for the council, up to 2000 characters"
+            },
+            "protocol": {
+              "type": "string",
+              "enum": [
+                "plan",
+                "execute"
+              ],
+              "description": "plan (default) asks for a plan; execute asks for the finished work"
+            },
+            "context": {
+              "type": "object",
+              "description": "Optional governance context. Self-declared flags are recorded and ignored; only signed grants scoped to job_id add permissions.",
+              "properties": {
+                "job_id": {
+                  "type": "string",
+                  "description": "Scope that signed grants must name, up to 128 characters"
+                },
+                "capabilities": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Declared capabilities, e.g. cyber_testing; these can only add restrictions"
+                },
+                "domain": {
+                  "type": "string",
+                  "description": "Declared use domain; a high-impact domain adds restrictions, nothing else is honoured"
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Recorded for audit, never honoured"
+                },
+                "grants": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  },
+                  "description": "Ed25519-signed grant records, at most 8"
+                }
+              }
+            }
+          },
+          "required": [
+            "task"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "final_text": {
+              "type": "string",
+              "description": "The Integrator's final response"
+            },
+            "trace": {
+              "type": "object",
+              "description": "Architect plan, each critic's score, feedback and suggestions, average score, models used and elapsed time"
+            },
+            "governance": {
+              "type": "object",
+              "description": "Policy id, version and SHA-256, input and output screen decisions, and the grant audit"
+            }
+          }
+        }
+      },
+      "tokenAddress": "0x833f1b3b8dac81f3883468abbc78f21e68757ba3"
+    }
+  }
+}

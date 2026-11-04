@@ -25,7 +25,12 @@ class FakeMessages:
         prompt = messages[0]["content"]
         self.calls.append((model, prompt))
         if "You are the Architect" in prompt:
-            text = self.architect_text or f"{json.dumps(PLAN)}\n---DRAFT---\ninitial draft"
+            if self.architect_text is not None:
+                text = self.architect_text
+            elif "---DRAFT---" in prompt:
+                text = f"{json.dumps(PLAN)}\n---DRAFT---\ninitial draft"
+            else:
+                text = "initial draft"
         elif "Critic in the RFAI-PRIME council" in prompt:
             perspective = prompt.split("You are the ")[1].split(" Critic")[0].lower()
             text = self.critic_text or json.dumps({
@@ -41,22 +46,31 @@ class FakeMessages:
     def count(self, marker):
         return sum(marker in p for _, p in self.calls)
 
+    def prompts(self, marker):
+        return [p for _, p in self.calls if marker in p]
+
 
 def make_council(messages, **kwargs):
-    council = RFAIPrimeCouncil(api_key="test-key", **kwargs)
-    council.client = SimpleNamespace(messages=messages)
-    return council
+    return RFAIPrimeCouncil(client=SimpleNamespace(messages=messages), **kwargs)
 
 
-async def test_architect_parses_plan_and_draft():
+async def test_architect_writes_plain_draft_by_default():
     council = make_council(FakeMessages())
+    plan, draft = await council._architect("my task")
+    assert plan.summary == "my task"
+    assert plan.concerns == []
+    assert draft == "initial draft"
+
+
+async def test_architect_parses_plan_and_draft_when_plan_requested():
+    council = make_council(FakeMessages(), architect_plan=True)
     plan, draft = await council._architect("task")
     assert plan.model_dump() == PLAN
     assert draft == "initial draft"
 
 
-async def test_architect_falls_back_on_invalid_json():
-    council = make_council(FakeMessages(architect_text="not json at all"))
+async def test_architect_plan_falls_back_on_invalid_json():
+    council = make_council(FakeMessages(architect_text="not json at all"), architect_plan=True)
     plan, draft = await council._architect("my task")
     assert plan.summary == "my task"
     assert plan.approach == "not json at all"
@@ -64,11 +78,12 @@ async def test_architect_falls_back_on_invalid_json():
     assert draft == "not json at all"
 
 
-async def test_critic_falls_back_to_neutral_score():
+async def test_unreadable_critic_reply_gets_no_score():
     council = make_council(FakeMessages(critic_text="unstructured critique"))
     fb = await council._critic("task", "draft", "security")
     assert fb.perspective == "security"
-    assert fb.score == 5
+    assert fb.score is None
+    assert fb.readable is False
     assert fb.feedback == "unstructured critique"
 
 
@@ -93,9 +108,25 @@ async def test_invoke_revises_until_budget_exhausted(max_revisions):
     resp = await council.invoke("task")
 
     assert resp.trace.revisions == max_revisions
+    assert resp.trace.approved is False
     rounds = max_revisions + 1
     assert messages.count("Critic in the RFAI-PRIME council") == rounds * len(CRITIC_PERSPECTIVES)
     assert messages.count("You are the Integrator") == max_revisions + 1
+
+
+async def test_each_revision_is_critiqued_on_the_newest_draft():
+    messages = FakeMessages(critic_score=3)
+    council = make_council(messages, max_revisions=2)
+    resp = await council.invoke("task")
+
+    assert [r.draft for r in resp.trace.rounds] == ["initial draft", "integrated #1", "integrated #2"]
+    critic_prompts = messages.prompts("Critic in the RFAI-PRIME council")
+    n = len(CRITIC_PERSPECTIVES)
+    for i, expected in enumerate(["initial draft", "integrated #1", "integrated #2"]):
+        for prompt in critic_prompts[i * n:(i + 1) * n]:
+            assert f"Draft response:\n{expected}\n" in prompt
+    # The final Integrator call works from the last revised draft, not the first one.
+    assert "Architect draft:\nintegrated #2\n" in messages.prompts("You are the Integrator")[-1]
 
 
 async def test_models_are_routed_per_role():
@@ -104,8 +135,14 @@ async def test_models_are_routed_per_role():
         messages, architect_model="arch", critic_model="crit", integrator_model="integ"
     )
     await council.invoke("task")
-    models = {m for m, _ in messages.calls}
-    assert models == {"arch", "crit", "integ"}
+    for model, prompt in messages.calls:
+        if "You are the Architect" in prompt:
+            assert model == "arch"
+        elif "Critic in the RFAI-PRIME council" in prompt:
+            assert model == "crit"
+        else:
+            assert "You are the Integrator" in prompt
+            assert model == "integ"
 
 
 def test_from_env_reads_model_overrides(monkeypatch):

@@ -7,8 +7,11 @@ This repository contains an implementation of the RFAI-PRIME v2.0.1 council runt
 - `src/rfai_prime_runtime.py` — runtime harness (Architect + 5 critics + Integrator).
 - `docs/rfai_prime_design_doc.md` — high-level design and data model.
 - `docs/rfai_prime_sequence_diagram.md` — Mermaid sequence diagram for the `invoke` path.
-- `mcp_server/` — MCP server so an assistant (e.g. Maya) can query the project and run tests.
-- `tests/` — pytest suite (runtime tests use a mocked Anthropic client; no API key needed).
+- `src/governance/` — v2.1 candidate governance layer: policy screen (allow / review / deny), budgets, hash-chained evidence log, human review. See `docs/GOVERNANCE.md`.
+- `policies/`, `scenarios/` — default Discovery policy and the 15-scenario acceptance suite.
+- `mcp_server/` — Python MCP server so an assistant (e.g. Maya) can query this repository and run its tests.
+- `mcp/` — separate TypeScript MCP server for the governed council (OAuth, Koyeb guide in `mcp/DEPLOY_KOYEB.md`).
+- `tests/` — pytest suite with scripted model replies; no API key needed (`python -m pytest -q tests`).
 
 ## Quickstart
 
