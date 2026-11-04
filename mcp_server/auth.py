@@ -23,7 +23,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -32,6 +32,7 @@ from mcp.server.auth.provider import (
     AuthorizeError,
     OAuthAuthorizationServerProvider,
     RefreshToken,
+    RegistrationError,
     TokenError,
     construct_redirect_uri,
 )
@@ -47,7 +48,14 @@ LOGIN_PATH = "/oauth/login"
 AUTH_CODE_TTL = 300
 PENDING_TTL = 600
 MAX_LOGIN_ATTEMPTS = 5
+# Server-wide brute-force brake: per-transaction lockout alone can be sidestepped by
+# starting a fresh authorization for every guess.
+GLOBAL_FAILURE_WINDOW = 15 * 60
+GLOBAL_FAILURE_LIMIT = 20
+MAX_PENDING = 200
+MAX_CLIENTS = 100
 SUBJECT = "rfai-operator"
+LOCAL_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
 
 
 def _hash(token: str) -> str:
@@ -77,6 +85,11 @@ class OAuthSettings:
     def from_env(cls, public_url: Optional[str]) -> "OAuthSettings":
         if not public_url:
             raise ValueError("RFAI_MCP_PUBLIC_URL is required when OAuth is enabled")
+        parsed = urlparse(public_url)
+        if parsed.scheme != "https" and parsed.hostname not in LOCAL_HOSTNAMES:
+            raise ValueError("RFAI_MCP_PUBLIC_URL must use https:// (http is only allowed for localhost)")
+        if parsed.query or parsed.fragment:
+            raise ValueError("RFAI_MCP_PUBLIC_URL must not contain a query or fragment")
         password = os.environ.get("RFAI_MCP_OAUTH_PASSWORD", "")
         if len(password) < 12:
             raise ValueError("RFAI_MCP_OAUTH_PASSWORD must be set (at least 12 characters)")
@@ -125,6 +138,7 @@ class RFAIOAuthProvider(
         self.grants: dict[str, _Grant] = {}
         self.codes: dict[str, AuthorizationCode] = {}
         self.pending: dict[str, _Pending] = {}
+        self.failures: list[float] = []
         self._load_state()
         if settings.static_client_id:
             self._register_static_client()
@@ -190,6 +204,11 @@ class RFAIOAuthProvider(
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         assert client_info.client_id
+        if len(self.clients) >= MAX_CLIENTS:
+            raise RegistrationError(
+                error="invalid_client_metadata",
+                error_description="client registration limit reached on this server",
+            )
         self.clients[client_info.client_id] = client_info
         logger.info("registered OAuth client %s (%s)", client_info.client_id,
                     client_info.client_name)
@@ -206,6 +225,11 @@ class RFAIOAuthProvider(
                 error_description=f"unknown resource {params.resource!r}",
             )
         self._expire()
+        if len(self.pending) >= MAX_PENDING:
+            raise AuthorizeError(
+                error="temporarily_unavailable",
+                error_description="too many authorizations in progress; try again later",
+            )
         txn = secrets.token_urlsafe(32)
         assert client.client_id
         self.pending[txn] = _Pending(client.client_id, params, time.time())
@@ -238,8 +262,17 @@ class RFAIOAuthProvider(
                 state=pending.params.state,
             ))
 
+        now = time.time()
+        self.failures = [t for t in self.failures if now - t < GLOBAL_FAILURE_WINDOW]
+        if len(self.failures) >= GLOBAL_FAILURE_LIMIT:
+            logger.warning("OAuth login temporarily locked: %d failures in %ds",
+                           len(self.failures), GLOBAL_FAILURE_WINDOW)
+            return _page("Sign-in temporarily locked",
+                         "<p>Too many failed attempts. Try again in 15 minutes.</p>", status=429)
+
         password = str(form.get("password") or "")
         if not hmac.compare_digest(password.encode(), self.settings.password.encode()):
+            self.failures.append(now)
             pending.attempts += 1
             await asyncio.sleep(0.5)
             if pending.attempts >= MAX_LOGIN_ATTEMPTS:

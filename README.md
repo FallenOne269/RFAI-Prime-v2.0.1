@@ -82,6 +82,22 @@ Resources: `rfai://readme`, `rfai://docs/design`, `rfai://docs/sequence`, `rfai:
 
 Only one test run executes at a time; run history is kept in memory for the server's lifetime.
 
+### Safety model
+
+The test tools (`list_tests`, `run_tests`) and `describe_council` execute repository code, so they are
+annotated as not read-only. Every child process (pytest, collection, runtime introspection) is started
+without a shell, with `stdin` from `/dev/null`, in its own process group (a timeout, cancellation or
+server shutdown kills pytest and anything it spawned), and with a scrubbed environment: variables whose
+names look like credentials (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `RFAI_MCP_*`, ...) are removed,
+and their values are redacted from returned output. `describe_council` imports the runtime in a child
+process, never in the server. `-k` expressions are passed attached (`-k<expr>`) so they cannot become
+pytest options; `timeout_seconds` must be 1-3600. JUnit reports are parsed with `defusedxml`.
+
+File tools resolve symlinks and refuse anything outside the repository, in `.git`/venv/cache or
+credential directories (`.ssh`, `.aws`, ...), or named like a secret (`.env*`, `*.pem`, `*.key`,
+`id_ed25519*`, `.netrc`, `credentials*`, ...). `read_file` streams ranges with a 256 KB cap, regex search
+has a time limit, and scans report unreadable, oversized and binary files instead of skipping them silently.
+
 ### Run
 
 ```bash
@@ -113,7 +129,8 @@ Add to your MCP client config (e.g. Claude Desktop `claude_desktop_config.json`)
 | `RFAI_MCP_ENABLE_COUNCIL` | off | Set to `1` (with `ANTHROPIC_API_KEY`) to enable `invoke_council` |
 | `RFAI_MCP_TRANSPORT` / `RFAI_MCP_HOST` / `RFAI_MCP_PORT` | `stdio` / `127.0.0.1` / `8000` | Transport settings |
 
-Without OAuth the HTTP transport has no authentication; keep it bound to localhost.
+Without OAuth the HTTP transport has no authentication, so the server refuses to bind anything other than
+localhost unless OAuth is enabled.
 
 ### Remote access with OAuth (Sesame custom app)
 
@@ -122,7 +139,9 @@ Set `RFAI_MCP_OAUTH=1` to protect the HTTP transport with OAuth 2.1, following t
 The server acts as its own authorization server. It publishes protected-resource and
 authorization-server metadata, supports dynamic client registration, uses authorization code + PKCE (S256),
 rotates refresh tokens, and supports revocation. When a client is authorized, the operator approves it on a
-consent page protected by `RFAI_MCP_OAUTH_PASSWORD`.
+consent page protected by `RFAI_MCP_OAUTH_PASSWORD`. Five wrong passwords lock one sign-in attempt, and 20
+wrong passwords across all attempts pause sign-in for 15 minutes. `RFAI_MCP_PUBLIC_URL` must be `https://`
+(plain http is accepted only for localhost).
 
 ```bash
 export RFAI_MCP_OAUTH=1
@@ -143,7 +162,7 @@ If the client needs a pre-registered client ID/secret instead of dynamic registr
 | `RFAI_MCP_OAUTH` | off | Enable OAuth on HTTP transports (refused with stdio) |
 | `RFAI_MCP_PUBLIC_URL` | required | Externally reachable origin; issuer and resource URL (`<url>/mcp`) |
 | `RFAI_MCP_OAUTH_PASSWORD` | required | Operator password for the consent page |
-| `RFAI_MCP_OAUTH_STATE_FILE` | in memory | JSON file (mode 0600) persisting clients and tokens |
+| `RFAI_MCP_OAUTH_STATE_FILE` | in memory | JSON file (mode 0600) persisting clients and tokens. Without it, every restart signs clients out |
 | `RFAI_MCP_OAUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URIS` | unset | Optional pre-registered client |
 | `RFAI_MCP_ACCESS_TOKEN_TTL` / `RFAI_MCP_REFRESH_TOKEN_TTL` | `3600` / `2592000` | Token lifetimes (seconds) |
 
