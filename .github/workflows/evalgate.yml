@@ -1,0 +1,57 @@
+name: evalgate
+
+# Independent promotion gate. Uses pull_request_target so the workflow file,
+# the gate code, the frozen cases and the thresholds all come from the BASE
+# branch: a pull request cannot edit how it is judged. The candidate's code is
+# only checked out as data and run inside the gate's isolated probe process.
+# Nothing here uses repository secrets; the token is read-only and is not
+# persisted into either checkout. Pull requests from forks are skipped, so a
+# required check stays unmet for them until a maintainer runs it by hand.
+
+on:
+  pull_request_target:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: "Branch, tag or commit to evaluate against main"
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out gate and baseline (base branch)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          path: gate
+          persist-credentials: false
+      - name: Check out candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.candidate_ref }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install "pydantic>=2,<3" pytest
+      - name: Gate self-tests (base branch copy)
+        working-directory: gate
+        run: python -m pytest -q evalgate/tests
+      - name: Qualify gate, then evaluate candidate
+        run: python gate/evalgate/gate.py check --baseline-root gate --candidate-root candidate --qualify --out evalgate-out
+      - name: Keep the decision
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evalgate-decision
+          path: evalgate-out

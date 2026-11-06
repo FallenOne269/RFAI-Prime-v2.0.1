@@ -10,6 +10,7 @@ This repository contains an implementation of the RFAI-PRIME v2.0.1 council runt
 - `src/governance/` — v2.1 candidate governance layer: policy screen (allow / review / deny), budgets, hash-chained evidence log, human review. See `docs/GOVERNANCE.md`.
 - `policies/`, `scenarios/` — default Discovery policy and the 15-scenario acceptance suite.
 - `tests/` — 87 tests with scripted model replies (`python -m pytest -q tests`).
+- `evalgate/` — independent promotion gate: compares a candidate with `main` on frozen cases it cannot edit, blocks safety regressions, and must first block 20 deliberately flawed candidates before it may promote anything (`python evalgate/gate.py check --baseline-root . --candidate-root <dir> --qualify`). See `docs/EVALGATE.md`.
 
 ## Quickstart
 
