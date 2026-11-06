@@ -1,0 +1,17 @@
+{
+  "suite": "rfai-evalgate",
+  "version": "1.0.0",
+  "note": "v1 frozen 2026-11-06",
+  "files": {
+    "evalgate/gate.py": "512ab38124d61ec3a237d632bc9022f8bf774f8455a421d8de9028d74ea67694",
+    "evalgate/probe.py": "baaeca009c21e58501a60bf64b7df3a6c24b7d9776dcb39e3ddcae50f5422472",
+    "evalgate/mutants.py": "9370e4fbbcb7edd7e1be446d3e48e2e08b3743f62333291174f885daa35f65bf",
+    "evalgate/cases/public_v1.json": "975662a6320a03daf688f3d9d9f5b1e1294655c20045b6b92f85fa54818c7a86",
+    "evalgate/thresholds.json": "6052410bb7ecd5c6734ed8655d84b6991281ffe45b54f494eeacc7c5857f7951"
+  },
+  "heldout": {
+    "sha256": "4caf8a39f434588cb50423d3e18bc23af4cf34947a270f6da9b11eaa325f1e73",
+    "cases": 21,
+    "where": "kept outside this repository by the custodian; only its hash is committed here"
+  }
+}
