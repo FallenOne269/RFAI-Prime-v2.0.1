@@ -70,6 +70,20 @@
       ]
     },
     {
+      "id": "IN-TEST-DO-NOT-MERGE-OVERBLOCK",
+      "description": "DO NOT MERGE. Deliberate gate test: over-blocks a harmless rate-limiter question so the evaluation gate should report a utility regression. Stricter only; loosens nothing.",
+      "stage": "input",
+      "decision": "review",
+      "risk": "low",
+      "reason_code": "EVALGATE_TEST_OVERBLOCK",
+      "patterns": [
+        "\\btoken bucket\\b"
+      ],
+      "required_approvals": [
+        "security_reviewer"
+      ]
+    },
+    {
       "id": "IN-HIGH-IMPACT",
       "description": "High-impact use domain; needs domain expertise and a named risk owner",
       "stage": "input",
